@@ -27,6 +27,20 @@ CircuitPython module for the TSL2591 precision light sensor.  See
 examples/simpletest.py for a demo of the usage.
 
 * Author(s): Tony DiCola
+
+Implementation Notes
+--------------------
+
+**Hardware:**
+
+* Adafruit `TSL2591 High Dynamic Range Digital Light Sensor
+  <https://www.adafruit.com/product/1980>`_ (Product ID: 1980)
+
+**Software and Dependencies:**
+
+* Adafruit CircuitPython firmware for the ESP8622 and M0-based boards:
+  https://github.com/adafruit/circuitpython/releases
+* Adafruit's Bus Device library: https://github.com/adafruit/Adafruit_CircuitPython_BusDevice
 """
 from micropython import const
 
@@ -55,6 +69,8 @@ _TSL2591_LUX_DF              = 408.0
 _TSL2591_LUX_COEFB           = 1.64
 _TSL2591_LUX_COEFC           = 0.59
 _TSL2591_LUX_COEFD           = 0.86
+_TSL2591_MAX_COUNT_100MS     = const(36863) # 0x8FFF
+_TSL2591_MAX_COUNT           = const(65535) # 0xFFFF
 
 # User-facing constants:
 GAIN_LOW                  = 0x00  # low gain (1x)
@@ -149,10 +165,10 @@ class TSL2591:
     def gain(self):
         """Get and set the gain of the sensor.  Can be a value of:
 
-        - `GAIN_LOW` (1x)
-        - `GAIN_MED` (25x)
-        - `GAIN_HIGH` (428x)
-        - `GAIN_MAX` (9876x)
+        - ``GAIN_LOW`` (1x)
+        - ``GAIN_MED`` (25x)
+        - ``GAIN_HIGH`` (428x)
+        - ``GAIN_MAX`` (9876x)
         """
         control = self._read_u8(_TSL2591_REGISTER_CONTROL)
         return control & 0b00110000
@@ -172,12 +188,12 @@ class TSL2591:
     def integration_time(self):
         """Get and set the integration time of the sensor.  Can be a value of:
 
-        - `INTEGRATIONTIME_100MS` (100 millis)
-        - `INTEGRATIONTIME_200MS` (200 millis)
-        - `INTEGRATIONTIME_300MS` (300 millis)
-        - `INTEGRATIONTIME_400MS` (400 millis)
-        - `INTEGRATIONTIME_500MS` (500 millis)
-        - `INTEGRATIONTIME_600MS` (600 millis)
+        - ``INTEGRATIONTIME_100MS`` (100 millis)
+        - ``INTEGRATIONTIME_200MS`` (200 millis)
+        - ``INTEGRATIONTIME_300MS`` (300 millis)
+        - ``INTEGRATIONTIME_400MS`` (400 millis)
+        - ``INTEGRATIONTIME_500MS`` (500 millis)
+        - ``INTEGRATIONTIME_600MS`` (600 millis)
         """
         control = self._read_u8(_TSL2591_REGISTER_CONTROL)
         return control & 0b00000111
@@ -234,12 +250,21 @@ class TSL2591:
         and visible light channels.
         """
         channel_0, channel_1 = self.raw_luminosity
+
+        # Compute the atime in milliseconds
+        atime = 100.0 * self._integration_time + 100.0
+
+        # Set the maximum sensor counts based on the integration time (atime) setting
+        if self._integration_time == INTEGRATIONTIME_100MS:
+            max_counts = _TSL2591_MAX_COUNT_100MS
+        else:
+            max_counts = _TSL2591_MAX_COUNT
+
         # Handle overflow.
-        if channel_0 == 0xFFFF or channel_1 == 0xFFFF:
+        if channel_0 >= max_counts or channel_1 >= max_counts:
             raise RuntimeError('Overflow reading light channels!')
         # Calculate lux using same equation as Arduino library:
         #  https://github.com/adafruit/Adafruit_TSL2591_Library/blob/master/Adafruit_TSL2591.cpp
-        atime = 100.0 * self._integration_time + 100.0
         again = 1.0
         if self._gain == GAIN_MED:
             again = 25.0
